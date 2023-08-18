@@ -24,5 +24,3 @@ COPY --from=builder /app/target/release/binance-exporter /usr/local/bin/binance-
 EXPOSE 9090
 
 ENV RUST_LOG=binance_exporter=info
-
-ENTRYPOINT binance-exporter
