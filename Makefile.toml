@@ -1,0 +1,19 @@
+[config]
+default_to_workspace = false
+
+[env]
+RUST_BACKTRACE = "1"
+RUST_LOG = "binance_exporter=info"
+
+[tasks.run]
+script = """
+exec --fail-on-error cargo run --release
+"""
+script_runner = "@duckscript"
+
+[tasks.build_docker]
+script = """
+exec --fail-on-error docker buildx build -t ghcr.io/dovahcrow/binance-exporter .
+"""
+script_runner = "@duckscript"
+
