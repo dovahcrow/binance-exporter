@@ -6,10 +6,8 @@ RUST_BACKTRACE = "1"
 RUST_LOG = "binance_exporter=info"
 
 [tasks.run]
-script = """
-exec --fail-on-error cargo run --release
-"""
-script_runner = "@duckscript"
+args = ["run", "--release", "--", "${@}"]
+command = "cargo"
 
 [tasks.build_docker]
 script = """

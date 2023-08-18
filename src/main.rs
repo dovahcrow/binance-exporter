@@ -1,5 +1,7 @@
 use std::{
+    collections::HashSet,
     convert::Infallible,
+    mem,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
@@ -7,7 +9,6 @@ use std::{
 use anyhow::Error;
 use binance_async::{websocket::usdm::WebsocketMessage, BinanceWebsocket};
 use clap::Parser;
-use fehler::throws;
 use futures::StreamExt;
 use hyper::{
     server::Server,
@@ -35,48 +36,60 @@ struct Cli {
     // pub api_key: String,
     // #[arg(long, env)]
     // pub secret_key: String,
+    #[arg(long, env)]
+    pub symbol: Vec<String>,
+
     #[arg(long, env, default_value = "9090")]
     pub port: u16,
 }
 
-#[throws(Error)]
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Error> {
     env_logger::init();
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    if cli.symbol.is_empty() {
+        error!("symbol cannot be empty");
+        return Ok(());
+    }
 
     let metrics_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), cli.port);
     spawn(start_metrics_server(metrics_addr));
 
-    let mut ws: BinanceWebsocket<WebsocketMessage> =
-        BinanceWebsocket::new(&["!bookTicker"]).await?;
+    let symbols: HashSet<String> = HashSet::from_iter(mem::take(&mut cli.symbol));
 
     loop {
-        let msg = match ws.next().await {
-            Some(Ok(m)) => m,
-            None => {
-                error!("Websocket exited");
-                sleep(Duration::from_secs(1)).await;
-                break;
-            }
-            Some(Err(e)) => {
-                error!("Websocket exited: {e:?}");
-                sleep(Duration::from_secs(1)).await;
-                break;
-            }
-        };
+        let mut ws: BinanceWebsocket<WebsocketMessage> =
+            BinanceWebsocket::new(&["!bookTicker"]).await?;
 
-        match msg {
-            WebsocketMessage::BookTicker(msg) => {
-                PRICE.with_label_values(&["Binance", &msg.symbol]).set(
-                    ((msg.best_bid + msg.best_ask) / Decimal::TWO)
-                        .to_f64()
-                        .unwrap_or(0.),
-                )
-            }
-            WebsocketMessage::Ping => ws.pong().await?,
-            m => {
-                error!("Unknown message: {m:?}");
+        loop {
+            let msg = match ws.next().await {
+                Some(Ok(m)) => m,
+                None => {
+                    error!("Websocket exited");
+                    sleep(Duration::from_secs(1)).await;
+                    break;
+                }
+                Some(Err(e)) => {
+                    error!("Websocket exited: {e:?}");
+                    sleep(Duration::from_secs(1)).await;
+                    break;
+                }
+            };
+
+            match msg {
+                WebsocketMessage::BookTicker(msg) => {
+                    if !symbols.contains(&msg.symbol) {
+                        continue;
+                    }
+
+                    PRICE.with_label_values(&["Binance", &msg.symbol]).set(
+                        ((msg.best_bid + msg.best_ask) / Decimal::TWO)
+                            .to_f64()
+                            .unwrap_or(0.),
+                    )
+                }
+                WebsocketMessage::Ping => ws.pong().await?,
+                m => error!("Unknown message: {m:?}"),
             }
         }
     }
