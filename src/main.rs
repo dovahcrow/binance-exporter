@@ -19,7 +19,10 @@ use lazy_static::lazy_static;
 use log::{error, info};
 use prometheus::{gather, register_gauge_vec, Encoder, GaugeVec, TextEncoder};
 use rust_decimal::prelude::*;
-use tokio::{spawn, time::sleep};
+use tokio::{
+    spawn,
+    time::{sleep, timeout},
+};
 
 lazy_static! {
     pub static ref PRICE: GaugeVec = register_gauge_vec!(
@@ -41,6 +44,9 @@ struct Cli {
 
     #[arg(long, env, default_value = "9090")]
     pub port: u16,
+
+    #[arg(long, env, default_value_t = 60)]
+    pub timeout: u64,
 }
 
 #[tokio::main]
@@ -62,15 +68,20 @@ async fn main() -> Result<(), Error> {
             BinanceWebsocket::new(&["!bookTicker"]).await?;
 
         loop {
-            let msg = match ws.next().await {
-                Some(Ok(m)) => m,
-                None => {
+            let msg = match timeout(Duration::from_secs(cli.timeout), ws.next()).await {
+                Ok(Some(Ok(m))) => m,
+                Ok(None) => {
                     error!("Websocket exited");
                     sleep(Duration::from_secs(1)).await;
                     break;
                 }
-                Some(Err(e)) => {
+                Ok(Some(Err(e))) => {
                     error!("Websocket exited: {e:?}");
+                    sleep(Duration::from_secs(1)).await;
+                    break;
+                }
+                Err(_) => {
+                    error!("Timeout");
                     sleep(Duration::from_secs(1)).await;
                     break;
                 }
