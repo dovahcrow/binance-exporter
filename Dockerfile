@@ -13,7 +13,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release
 
-FROM ubuntu:20.04 as runtime
+FROM ubuntu:22.04 as runtime
 
 RUN apt-get update
 RUN apt-get install --no-install-recommends -y curl ca-certificates libssl-dev && \
